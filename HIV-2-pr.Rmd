@@ -1,0 +1,162 @@
+---
+title: "VIH-2-PR"
+author: "Nadezhda Zhukova"
+date: "2023-03-03"
+output: html_document
+---
+
+# Partie 1 : Impact de la structure de départ des simulations sur la distance d50 et la forme de la PR2
+
+## 1. Représenter la distribution de la distance d50 pourles structures extraites des deux simulations. Commenter les résultats obtenus.
+
+
+```{r}
+# Lire le fichier csv, et en extraire les données correspondant à chaque conformation
+d50 <- read.csv("d50_3ebz_1hsi.csv", sep=' ',dec='.')
+d50 <- head(d50, nrow(d50) - 6)
+
+d50_1hsi <- d50[grep("1hsi", d50$structure), ]
+d50_3ebz <- d50[grep("3ebz", d50$structure), ]
+```
+
+```{r}
+# Représenter les deux sur le même histogramme avec des couleurs transparentes pouvant se chevaucher
+
+hist(d50_1hsi$d50, main = "", xlab = "d50 (Å)", breaks = 20, col = adjustcolor("cadetblue", alpha.f = 0.55))
+hist(d50_3ebz$d50, breaks = 20, col = adjustcolor("coral", alpha.f = 0.55), add = TRUE)
+legend("topright", c("1HSI", "3EBZ"), fill = c(adjustcolor("cadetblue", alpha.f = 0.55), adjustcolor("coral", alpha.f = 0.55)))
+```
+
+## 2. Comparaison de la distance d50 moyenne dans les deux simulations. Quel est l’impact de la structure de départ sur la distance d50 de la PR2 ?
+
+```{r}
+mean_d50_1hsi <- mean(d50_1hsi$d50)
+mean_d50_3ebz <- mean(d50_3ebz$d50)
+
+median_d50_1hsi <- median(d50_1hsi$d50)
+median_d50_3ebz <- median(d50_3ebz$d50)
+
+sd_d50_1hsi <- sd(d50_1hsi$d50)
+sd_d50_3ebz <- sd(d50_3ebz$d50)
+
+var_d50_1hsi <- var(d50_1hsi$d50)
+var_d50_3ebz <- var(d50_3ebz$d50)
+```
+
+```{r}
+t.test(d50_1hsi$d50, d50_3ebz$d50)
+```
+## 3. Etudier et comparer l’évolution de la distance d50 au cours du temps pour les deux simulations.
+
+
+```{r}
+# Ajout du temps dans les data frames
+t <- str_match(d50_1hsi$structure, "[0-9]{1,3}.pdb")
+time <- as.numeric(str_match(t, "[0-9]+"))
+d50_1hsi <- cbind(d50_1hsi, time)
+t <- str_match(d50_3ebz$structure, "[0-9]{1,3}.pdb")
+time <- as.numeric(str_match(t, "[0-9]+"))
+d50_3ebz <- cbind(d50_3ebz, time)
+
+# Représentation des données
+library(ggplot2)
+library(gridExtra)
+
+ggplot() +
+geom_point(data=d50_1hsi, aes(time, d50), color = "cadetblue", size=1) +
+geom_smooth(data=d50_1hsi, aes(time, d50,, color = "1hsi")) +
+geom_point(data=d50_3ebz, aes(time, d50), color = "coral", size=1) +
+geom_smooth(data=d50_3ebz, aes(time, d50, color = "3ebz")) +
+xlab("Time (ns)") + ylab("D50 (Å)") +
+ggtitle("Evolution of D50 in 1hsi and 3ebz structure over time") +
+scale_color_manual(values = c("1hsi" = "#1A5276", "3ebz" = "#D35400")) +
+  theme(panel.background = element_rect(fill = "white"))
+
+```
+
+# Partie 2 : Impact de la conformation de départ sur la structure de la PR2
+
+
+## 4. La première étape va consister à supprimer les distances dSL−Cα qui ont une variance nulle dans les 2002 structures. Pourquoi supprime-t-on ces distances ? Combien de distances dSL−Cα avez-vous supprimées ?
+
+```{r}
+SLCalpha_1hsi <- read.csv("dist_SLCalpha_superlig_1HSI.csv", sep=' ',dec='.')
+SLCalpha_3ebz <- read.csv("dist_SLCalpha_superlig_3EBZ.csv", sep=' ',dec='.')
+SLCalpha <- rbind(SLCalpha_1hsi, SLCalpha_3ebz)
+SLCalpha <- data.frame(SLCalpha, row.names = NULL)
+
+library(reshape2)
+SLCalpha <- dcast(SLCalpha, structure ~ CA, value.var = "dSLCA")
+SLCalpha_var <- apply(SLCalpha, 2, var)
+```
+
+## 5. Réaliser une analyse en composante principale des 2002 structures à partir de distances dSL−Cα avec une variance non nulle. Analyser les résultats obtenus.
+
+```{r}
+SLCalpha_cor_matrix <- cor(sapply(SLCalpha[-1,-1], as.numeric))
+pca <- prcomp(SLCalpha_cor_matrix, plot=FALSE)
+library(factoextra)
+library(FactoMineR)
+pca <- PCA(SLCalpha_cor_matrix, graph=FALSE)
+fviz_pca_var(pca, col.var = "contrib", gradient.cols = c("#6D0220","coral", "#FFFFFF", "cadetblue", "#053061"), repel = TRUE)
+```
+
+## 6. Calculer et représenter la matrice de corrélation des distances dSL−Cα calculées avec les 2002 structures. Pour la représentation, vous pouvez utiliser la fonction corrplot() de la librairie corrplot().Commenter les résultats obtenus.
+
+```{r}
+install.packages("corrplot")
+library(corrplot)
+
+corrplot(SLCalpha_cor_matrix, method = "color", type = "upper",  tl.pos = "n", tl.cex = 0.2, tl.col = "black")
+
+```
+
+## 7. Supprimer les distances dSL−Cα ayant un coefficient de corrélation supérieur à 0.85 en utilisant la fonction findCorrelation(cutoff = 0.85) du package caret. Pourquoi supprimer ces distances dSL−Cα ? Combien de distances dSL−Cα avez-vous supprimées ?
+ 
+```{r}
+install.packages("caret")
+library(caret)
+
+high_corr_indices <- findCorrelation(SLCalpha_cor_matrix, cutoff = 0.85)
+low_corr_dist <- SLCalpha[, -high_corr_indices]
+
+cat("Number of distances removed:", ncol(SLCalpha) - ncol(low_corr_dist))
+
+```
+## 8. A partir des distances dSL−Cα sélectionnées, calculer une nouvelle ACP des 2002 structures. Commenter les résultats obtenus.
+
+```{r}
+SLCalpha_low_cor_matrix <- cor(sapply(low_corr_dist[-1,-1], as.numeric))
+
+library(factoextra)
+library(FactoMineR)
+pca_2 <- PCA(SLCalpha_low_cor_matrix, graph=FALSE)
+fviz_pca_var(pca_2, col.var = "contrib", gradient.cols = c("#6D0220","coral", "#FFFFFF", "cadetblue", "#053061"), repel = TRUE)
+
+```
+ 
+## 9. A partir des distances dSL−Cα sélectionnées, calculer une classification hiérarchique des 2002 structures. Commenter la classification obtenue.
+
+```{r}
+hc <- hclust(dist(low_corr_dist), method = "ward.D2")
+plot(hc, hang = -1, cex = 0.001)
+```
+
+## 10. A partir de la classification, extraire 6 groupes en utilisant la fonction cutree(). Commenter les différents groupes obtenus. Etudier et commenter la distribution des deux types de structures (structures extraites de la simulation lancée avec 1HSI ou avec 3EBZ) dans les différents groupes.
+
+```{r}
+groups <- cutree(hc, k = 6)
+
+low_corr_dist_with_groups <- data.frame(low_corr_dist, groups)
+str <- rep(c("1hsi", "3bzez"), each = 1001)
+low_corr_dist_with_groups <- data.frame(low_corr_dist_with_groups, str)
+
+table_df <- table(low_corr_dist_with_groups$groups, low_corr_dist_with_groups$str)
+my_colors <- c("#A9CCE3", "#F5CBA7")
+ggplot(data = as.data.frame(table_df), aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Group", y = "Count", fill = "Type") +
+  scale_fill_manual(values = my_colors) +
+  theme(panel.background = element_rect(fill = "white"))
+```
+
